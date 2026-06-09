@@ -225,21 +225,22 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         // 当前设置项要加到滚动容器里。
         var flow = options.scrollerFlow;
 
-        // 用两个互斥选项模拟单选组件：
-        // 当前选中项用 ●，未选中项用 ○。用户点击任意一项即可切换到对应状态。
-        options.addSimpleWidget(GetRadioText(_enabled, Localize("启用", "Enabled")).AsHaxeString(),
+        // 使用游戏原生单选控件显示总开关，样式会跟原版设置页保持一致。
+        // 这里拆成“启用 / 关闭”两行，而不是文字拼 ●/○，避免不同字体或语言下显示不协调。
+        options.addRadioWidget(Localize("启用", "Enabled").AsHaxeString(),
             Localize("允许裂缝入侵事件在普通地图触发。", "Allow Rift Siege events to trigger on normal maps.").AsHaxeString(), () =>
         {
             SetEnabled(true, "menu radio enable");
             SaveConfig();
-        }, Ref<int>.In(5), flow);
+        }, Ref<bool>.In(_enabled), flow);
 
-        options.addSimpleWidget(GetRadioText(!_enabled, Localize("关闭", "Disabled")).AsHaxeString(),
+        // “关闭”也是同一组互斥含义的单选项；初始选中状态与 _enabled 取反。
+        options.addRadioWidget(Localize("关闭", "Disabled").AsHaxeString(),
             Localize("完全停止计数、触发和刷怪。", "Stop kill counting, event triggering, and enemy spawning.").AsHaxeString(), () =>
         {
             SetEnabled(false, "menu radio disable");
             SaveConfig();
-        }, Ref<int>.In(5), flow);
+        }, Ref<bool>.In(!_enabled), flow);
 
         // 给用户一个配置文件位置提示，方便不开菜单时手动改。
         options.addSimpleWidget(Localize("配置文件", "Config File").AsHaxeString(), SafeToString(_configPath).AsHaxeString(), () => { }, Ref<int>.In(0), flow);
@@ -996,12 +997,6 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
     private static string Localize(string zh, string en)
     {
         return IsChineseLanguage() ? zh : en;
-    }
-
-    // 生成“单选项”显示文本：选中为 ●，未选中为 ○。
-    private static string GetRadioText(bool selected, string label)
-    {
-        return $"{(selected ? "●" : "○")} {label}";
     }
 
     // 判断当前语言是否为中文。
