@@ -202,22 +202,22 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
     // ModCore 菜单里显示的入口名称。
     public string GetName()
     {
-        return "裂缝入侵 / Rift Siege";
+        return Localize("裂缝入侵", "Rift Siege");
     }
 
     // ModCore 菜单入口下方的小字。
     public string? GetSubText()
     {
         return _enabled
-            ? "Enabled / 已启用"
-            : "Disabled / 已关闭";
+            ? Localize("已启用", "Enabled")
+            : Localize("已关闭", "Disabled");
     }
 
     // 构建 Mod 设置菜单。
     public void BuildMenu(Options options)
     {
         // 设置页面标题。
-        options.title.set_text("裂缝入侵 / Rift Siege".AsHaxeString());
+        options.title.set_text(Localize("裂缝入侵", "Rift Siege").AsHaxeString());
 
         // 创建一个滚动容器；即使现在只有一个按钮，后续加更多设置也不用改结构。
         options.createScroller(1);
@@ -225,20 +225,24 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         // 当前设置项要加到滚动容器里。
         var flow = options.scrollerFlow;
 
-        // 状态文字每次进入菜单都会刷新。
-        var stateText = _enabled
-            ? "当前：已启用。点击后关闭事件。 / Current: Enabled. Click to disable."
-            : "当前：已关闭。点击后启用事件。 / Current: Disabled. Click to enable.";
-
-        // 用简单按钮做开关：点击后写入 config.json，并立即生效。
-        options.addSimpleWidget("启用裂缝入侵 / Enable Rift Siege".AsHaxeString(), stateText.AsHaxeString(), () =>
+        // 用两个互斥选项模拟单选组件：
+        // 当前选中项用 ●，未选中项用 ○。用户点击任意一项即可切换到对应状态。
+        options.addSimpleWidget(GetRadioText(_enabled, Localize("启用", "Enabled")).AsHaxeString(),
+            Localize("允许裂缝入侵事件在普通地图触发。", "Allow Rift Siege events to trigger on normal maps.").AsHaxeString(), () =>
         {
-            SetEnabled(!_enabled, "menu toggle");
+            SetEnabled(true, "menu radio enable");
+            SaveConfig();
+        }, Ref<int>.In(5), flow);
+
+        options.addSimpleWidget(GetRadioText(!_enabled, Localize("关闭", "Disabled")).AsHaxeString(),
+            Localize("完全停止计数、触发和刷怪。", "Stop kill counting, event triggering, and enemy spawning.").AsHaxeString(), () =>
+        {
+            SetEnabled(false, "menu radio disable");
             SaveConfig();
         }, Ref<int>.In(5), flow);
 
         // 给用户一个配置文件位置提示，方便不开菜单时手动改。
-        options.addSimpleWidget("配置文件 / Config File".AsHaxeString(), SafeToString(_configPath).AsHaxeString(), () => { }, Ref<int>.In(0), flow);
+        options.addSimpleWidget(Localize("配置文件", "Config File").AsHaxeString(), SafeToString(_configPath).AsHaxeString(), () => { }, Ref<int>.In(0), flow);
     }
 
     // 原版 Game.init 的 Hook：缓存 Game 实例，然后继续执行原版 init。
@@ -988,33 +992,44 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         }
     }
 
-    // 根据游戏语言返回事件提示文本。
-    private static string GetLocalizedEventText()
+    // 根据当前游戏语言选择中文或英文文本。
+    private static string Localize(string zh, string en)
     {
-        // 默认先给空字符串，读取失败时会走英文 fallback。
+        return IsChineseLanguage() ? zh : en;
+    }
+
+    // 生成“单选项”显示文本：选中为 ●，未选中为 ○。
+    private static string GetRadioText(bool selected, string label)
+    {
+        return $"{(selected ? "●" : "○")} {label}";
+    }
+
+    // 判断当前语言是否为中文。
+    private static bool IsChineseLanguage()
+    {
         var language = string.Empty;
 
         try
         {
-            // Lang.Class.LANG 是原版当前语言标识。
             language = SafeToString(Lang.Class.LANG);
         }
         catch
         {
-            // 读取语言失败时走英文，避免本地化探测影响游戏运行。
+            // 读取失败时按英文处理，避免语言探测影响菜单构建。
         }
 
-        // 统一小写后做宽松匹配，兼容 zh、schinese、tchinese、cn 等命名。
         var lower = language.ToLowerInvariant();
-
-        // 中文环境显示中文，否则显示英文。
         return lower.Contains("zh")
             || lower.Contains("chinese")
             || lower.Contains("schinese")
             || lower.Contains("tchinese")
-            || lower.Contains("cn")
-            ? "裂隙围攻事件出现"
-            : "Rift Siege event appeared";
+            || lower.Contains("cn");
+    }
+
+    // 根据游戏语言返回事件提示文本。
+    private static string GetLocalizedEventText()
+    {
+        return Localize("裂缝入侵事件出现", "Rift Siege event appeared");
     }
 
     // 显示事件出现提示：优先玩家头顶 PopText，失败后尝试 HUD 方法。

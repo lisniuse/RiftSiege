@@ -19,11 +19,14 @@ https://steamcommunity.com/sharedfiles/filedetails/?id=3741466048
 
 The mod can be enabled or disabled without deleting it.
 
-In game, open the Core Modding menu and enter `裂缝入侵 / Rift Siege`, then use:
+In game, open the Core Modding menu and enter `Rift Siege` or `裂缝入侵`, then choose one radio-style option:
 
 ```text
-启用裂缝入侵 / Enable Rift Siege
+● Enabled
+○ Disabled
 ```
+
+The menu text follows the current game language. Chinese game language shows Chinese text; other languages use English.
 
 You can also edit the generated config file in the installed mod directory:
 
