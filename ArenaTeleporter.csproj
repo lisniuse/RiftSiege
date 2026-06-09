@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <ModName>ArenaTeleporter</ModName>
+    <ModType>mod</ModType>
+    <Version>0.1.0</Version>
+    <ModMain>ArenaTeleporter.ModEntry</ModMain>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateSinglePakFile>true</GenerateSinglePakFile>
+    <GenerateDiffCDB>false</GenerateDiffCDB>
+    <GameVersion>35</GameVersion>
+    <AutoInstallMod>true</AutoInstallMod>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DeadCellsCoreModding.MDK" Version="1.0.1" />
+  </ItemGroup>
+
+  <Target Name="EnsurePackAssetsNotEmpty" BeforeTargets="PackAssetsIntoPak">
+    <PropertyGroup>
+      <_EmptyPackFile>$(IntermediateOutputPath)_empty_pack_asset.bin</_EmptyPackFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_EmptyPackFile)" Lines="" Overwrite="true" />
+    <ItemGroup Condition="'@(PackAssets)' == ''">
+      <PackAssets Include="$(_EmptyPackFile)" RootInPak="" />
+    </ItemGroup>
+  </Target>
+
+</Project>

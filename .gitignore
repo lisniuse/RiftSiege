@@ -1,0 +1,6 @@
+bin/
+obj/
+moddbg.log
+*.user
+*.suo
+*.cache
