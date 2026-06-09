@@ -18,13 +18,13 @@ using DotNetMath = System.Math;
 using DotNetPath = System.IO.Path;
 using DotNetType = System.Type;
 
-namespace ArenaTeleporter;
+namespace RiftSiege;
 
-// ArenaTeleporter 是一个独立的新 Mod。
+// RiftSiege 是一个独立的新 Mod。
 // 第一版先实现可测试闭环：
 // 1. 每张主地图随机抽取 15-30 的击杀阈值。
 // 2. 玩家在普通地图击杀怪物达到阈值后，直接在当前地图启动本地刷怪事件。
-// 3. 不生成传送门或独立地图，避免地图模板和切图逻辑带来的不稳定。
+// 3. 不生成入口实体或独立地图，避免地图模板和切图逻辑带来的不稳定。
 // 4. 事件期间每 0.1 秒刷 1 只随机普通敌人，敌人锁定玩家并尝试进攻。
 // 5. 竞技场敌人死亡时，掉落 1 个可拾取的蓝色细胞。
 // 6. 同一张地图只触发一次事件，避免重复刷怪。
@@ -37,7 +37,7 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
     // 每局随机使用同一个 Random，避免同一帧多次 new Random 生成重复随机数。
     private static readonly Random _random = new();
 
-    // 调试日志文件路径，位于 coremod/mods/ArenaTeleporter/moddbg.log。
+    // 调试日志文件路径，位于 coremod/mods/RiftSiege/moddbg.log。
     private static string? _debugLogPath;
 
     // 当前正在运行的 pr.Game 实例，用来读取 Boss 细胞数和当前关卡。
@@ -154,7 +154,7 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
 
     public override void Initialize()
     {
-        // Info.ModRoot 在安装后指向 coremod/mods/ArenaTeleporter。
+        // Info.ModRoot 在安装后指向 coremod/mods/RiftSiege。
         // 这里把日志文件固定写到 Mod 安装目录，方便你一边玩一边查看 moddbg.log。
         _debugLogPath = Info.ModRoot?.GetFilePath("moddbg.log");
         DebugLog("Initialize");
@@ -170,7 +170,7 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         Hook_Hero.onMobDeath += Hook_Hero_onMobDeath;
 
         // 同时写一条 ModCore 自带日志，方便确认 Mod 已加载。
-        Logger.Information("ArenaTeleporter initialized.");
+        Logger.Information("RiftSiege initialized.");
     }
 
     // 原版 Game.init 的 Hook：缓存 Game 实例，然后继续执行原版 init。

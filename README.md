@@ -1,4 +1,4 @@
-# ArenaTeleporter
+# RiftSiege
 
 Dead Cells Core Modding MDK mod. This mod currently implements a local arena-style encounter on the current map.
 
@@ -18,7 +18,7 @@ From the Dead Cells install/workspace root:
 ```powershell
 $env:DCCM_MDK_ROOT = (Resolve-Path .\dev\core\mdk\bin).Path
 $env:DCCM_ROOT = (Resolve-Path .\coremod).Path + "\"
-dotnet build .\dev\ArenaTeleporter\ArenaTeleporter.csproj -v:minimal
+dotnet build .\dev\RiftSiege\RiftSiege.csproj -v:minimal
 ```
 
 The project is configured with `AutoInstallMod=true`, so a successful build installs the mod into the local Core Modding mod directory.

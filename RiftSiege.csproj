@@ -5,10 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <ModName>ArenaTeleporter</ModName>
+    <ModName>RiftSiege</ModName>
     <ModType>mod</ModType>
     <Version>0.1.0</Version>
-    <ModMain>ArenaTeleporter.ModEntry</ModMain>
+    <ModMain>RiftSiege.ModEntry</ModMain>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateSinglePakFile>true</GenerateSinglePakFile>
     <GenerateDiffCDB>false</GenerateDiffCDB>
