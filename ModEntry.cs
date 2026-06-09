@@ -77,6 +77,10 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
     // 当前还被认为存活的竞技场敌人 key，用于限制场上敌人数量。
     private static readonly HashSet<int> _aliveArenaMobKeys = [];
 
+    // 事件怪对象引用表。
+    // 主要用于兜底：如果某些死亡没有走 Hero.onMobDeath，也能在每帧检测 destroyed 后补发细胞掉落。
+    private static readonly Dictionary<int, dc.en.Mob> _arenaMobsByKey = [];
+
     // 当前事件头顶提示。PopText 默认不会按我们的需求自动销毁，所以这里手动计时。
     private static PopText? _eventPopText;
 
@@ -246,6 +250,10 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         // 事件提示文字需要逐帧更新透明度和 Y 轴位置。
         UpdateEventPopText(dt);
 
+        // 兜底检查事件怪是否已经被销毁但没有触发 Hero.onMobDeath。
+        // 有些怪可能被陷阱、环境、特殊状态或非玩家直接伤害杀死，这时 Hero.onMobDeath 不一定会被调用。
+        CheckArenaMobFallbackDeaths(hero);
+
         // 只有事件已触发时才进入刷怪逻辑，平时只做轻量检查。
         if (_inArena)
         {
@@ -336,6 +344,7 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         // 清空旧的敌人追踪集合，避免上一轮事件的怪影响本轮掉落判断。
         _arenaMobKeys.Clear();
         _aliveArenaMobKeys.Clear();
+        _arenaMobsByKey.Clear();
 
         DebugLog($"Local arena event armed: map={SafeToString(hero._level?.map?.id)}, center=({center.cx},{center.cy}), total={LocalSpawnTotal}, interval={LocalSpawnIntervalSeconds}, bossCells={GetBossCells()}");
     }
@@ -465,6 +474,9 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
                 // _aliveArenaMobKeys 用于限制同屏存活怪数量。
                 _aliveArenaMobKeys.Add(key);
 
+                // 保存对象引用，用于 Hero.onMobDeath 漏掉时做 destroyed 兜底检测。
+                _arenaMobsByKey[key] = mob;
+
                 DebugLog($"Arena mob spawned: type={typeName}, pos=({cx},{cy}), bossCells={bossCells}, life={originalMaxLife}->{doubledMaxLife}, attempt={attempt + 1}");
                 return true;
             }
@@ -495,10 +507,60 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
 
         // 是事件怪：从存活集合移除，避免场上数量限制永远不下降。
         _aliveArenaMobKeys.Remove(key);
+        _arenaMobsByKey.Remove(key);
         DebugLog($"Arena mob death tracked: mob={SafeToString(mob.type)}, remainingTracked={_arenaMobKeys.Count}, alive={_aliveArenaMobKeys.Count}");
 
         // 按需求让事件怪掉落一个可拾取的蓝色细胞。
         DropArenaCellReward(self, mob);
+    }
+
+    // 兜底死亡检测：处理没有触发 Hero.onMobDeath 的事件怪。
+    private static void CheckArenaMobFallbackDeaths(Hero hero)
+    {
+        // 没有追踪对象时直接返回，避免每帧做无意义遍历。
+        if (_arenaMobsByKey.Count == 0) return;
+
+        // 先收集需要处理的 key，避免遍历 Dictionary 时直接修改集合。
+        List<int>? destroyedKeys = null;
+
+        foreach (var (key, mob) in _arenaMobsByKey)
+        {
+            try
+            {
+                // destroyed 为 true 说明实体已经被游戏销毁。
+                // 如果它还留在我们的追踪表里，就代表 Hero.onMobDeath 没有处理到它。
+                if (!mob.destroyed) continue;
+
+                destroyedKeys ??= [];
+                destroyedKeys.Add(key);
+            }
+            catch (Exception ex)
+            {
+                // 读取 destroyed 本身失败时也移除追踪，避免坏引用每帧刷异常。
+                destroyedKeys ??= [];
+                destroyedKeys.Add(key);
+                DebugLog($"Arena mob fallback check failed: key={key}, {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // 没有漏网死亡对象就结束。
+        if (destroyedKeys == null) return;
+
+        foreach (var key in destroyedKeys)
+        {
+            // TryGetValue 失败说明它可能刚被其他路径移除，跳过即可。
+            if (!_arenaMobsByKey.TryGetValue(key, out var mob)) continue;
+
+            // 从所有追踪集合移除，保证不会重复掉落。
+            _arenaMobsByKey.Remove(key);
+            _arenaMobKeys.Remove(key);
+            _aliveArenaMobKeys.Remove(key);
+
+            DebugLog($"Arena mob fallback death tracked: mob={SafeToString(mob.type)}, remainingTracked={_arenaMobKeys.Count}, alive={_aliveArenaMobKeys.Count}");
+
+            // 即使不是 Hero.onMobDeath 路径，也按事件怪死亡处理细胞掉落。
+            DropArenaCellReward(hero, mob);
+        }
     }
 
     // 统计普通地图击杀数，达到本地图随机阈值后触发本地刷怪事件。
@@ -716,6 +778,7 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         // 清空事件怪追踪；换图后旧怪不再由本事件管理。
         _arenaMobKeys.Clear();
         _aliveArenaMobKeys.Clear();
+        _arenaMobsByKey.Clear();
 
         // 清掉还挂在玩家头顶的事件文字。
         ClearEventPopText();
