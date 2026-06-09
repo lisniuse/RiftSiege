@@ -15,6 +15,26 @@ https://steamcommunity.com/sharedfiles/filedetails/?id=3741466048
 - Each spawned event enemy drops one collectible blue cell on death.
 - Each map can trigger the event only once per run.
 
+## Settings
+
+The mod can be enabled or disabled without deleting it.
+
+In game, open the Core Modding menu and enter `裂缝入侵 / Rift Siege`, then use:
+
+```text
+启用裂缝入侵 / Enable Rift Siege
+```
+
+You can also edit the generated config file in the installed mod directory:
+
+```json
+{
+  "Enabled": true
+}
+```
+
+Set `Enabled` to `false` to disable the event. The config is checked every second while the game is running.
+
 ## Build
 
 From the Dead Cells install/workspace root:

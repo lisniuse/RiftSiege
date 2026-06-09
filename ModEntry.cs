@@ -8,15 +8,18 @@ using dc.ui;
 using HaxeProxy.Runtime;
 using ModCore.Events.Interfaces.Game;
 using ModCore.Events.Interfaces.Game.Hero;
+using ModCore.Menu;
 using ModCore.Mods;
 using ModCore.Utilities;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using DotNetFile = System.IO.File;
 using DotNetMath = System.Math;
 using DotNetPath = System.IO.Path;
 using DotNetType = System.Type;
+using Options = dc.ui.Options;
 
 namespace RiftSiege;
 
@@ -29,6 +32,7 @@ namespace RiftSiege;
 // 5. 竞技场敌人死亡时，掉落 1 个可拾取的蓝色细胞。
 // 6. 同一张地图只触发一次事件，避免重复刷怪。
 public sealed class ModEntry(ModInfo info) : ModBase(info),
+    IModMenu,
     IOnHeroUpdate,
     IOnHeroInit,
     IOnHeroDispose,
@@ -39,6 +43,18 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
 
     // 调试日志文件路径，位于 coremod/mods/RiftSiege/moddbg.log。
     private static string? _debugLogPath;
+
+    // 用户配置文件路径，位于 coremod/mods/RiftSiege/config.json。
+    private static string? _configPath;
+
+    // 上一次读到的配置文件修改时间，用来避免每帧重复读文件。
+    private static DateTime _configLastWriteTimeUtc;
+
+    // 配置热加载计时器。每秒检查一次，避免频繁 IO。
+    private static double _configReloadTimer;
+
+    // 总开关。false 时不计数、不触发事件、不刷怪。
+    private static bool _enabled = true;
 
     // 当前正在运行的 pr.Game 实例，用来读取 Boss 细胞数和当前关卡。
     private static Game? _currentGame;
@@ -111,6 +127,9 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
     // 事件提示使用明亮金色，避免原版默认黑色在暗背景里看不清。
     private const int EventPopTextColor = 0xFFD35A;
 
+    // 配置文件热加载间隔。
+    private const double ConfigReloadIntervalSeconds = 1.0;
+
     // 可以随机刷出的敌人类型。
     // 这些类型都来自已确认存在的原版 Mob 子类，构造签名稳定为 (Level, cx, cy, tierA, tierB)。
     private static readonly string[] _mobTypeNames =
@@ -157,7 +176,14 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         // Info.ModRoot 在安装后指向 coremod/mods/RiftSiege。
         // 这里把日志文件固定写到 Mod 安装目录，方便你一边玩一边查看 moddbg.log。
         _debugLogPath = Info.ModRoot?.GetFilePath("moddbg.log");
+
+        // 配置文件也放在 Mod 安装目录，用户可以直接编辑。
+        _configPath = Info.ModRoot?.GetFilePath("config.json");
+
         DebugLog("Initialize");
+
+        // 首次加载时读取配置；如果 config.json 不存在，会自动创建默认启用配置。
+        ReloadConfigIfChanged(force: true);
 
         // 缓存原版 pr.Game 实例，地图加载、细胞数读取都要用它。
         // Hook_Game.init 会在游戏主对象初始化时触发，此时能拿到本局的 Game self。
@@ -171,6 +197,48 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
 
         // 同时写一条 ModCore 自带日志，方便确认 Mod 已加载。
         Logger.Information("RiftSiege initialized.");
+    }
+
+    // ModCore 菜单里显示的入口名称。
+    public string GetName()
+    {
+        return "裂缝入侵 / Rift Siege";
+    }
+
+    // ModCore 菜单入口下方的小字。
+    public string? GetSubText()
+    {
+        return _enabled
+            ? "Enabled / 已启用"
+            : "Disabled / 已关闭";
+    }
+
+    // 构建 Mod 设置菜单。
+    public void BuildMenu(Options options)
+    {
+        // 设置页面标题。
+        options.title.set_text("裂缝入侵 / Rift Siege".AsHaxeString());
+
+        // 创建一个滚动容器；即使现在只有一个按钮，后续加更多设置也不用改结构。
+        options.createScroller(1);
+
+        // 当前设置项要加到滚动容器里。
+        var flow = options.scrollerFlow;
+
+        // 状态文字每次进入菜单都会刷新。
+        var stateText = _enabled
+            ? "当前：已启用。点击后关闭事件。 / Current: Enabled. Click to disable."
+            : "当前：已关闭。点击后启用事件。 / Current: Disabled. Click to enable.";
+
+        // 用简单按钮做开关：点击后写入 config.json，并立即生效。
+        options.addSimpleWidget("启用裂缝入侵 / Enable Rift Siege".AsHaxeString(), stateText.AsHaxeString(), () =>
+        {
+            SetEnabled(!_enabled, "menu toggle");
+            SaveConfig();
+        }, Ref<int>.In(5), flow);
+
+        // 给用户一个配置文件位置提示，方便不开菜单时手动改。
+        options.addSimpleWidget("配置文件 / Config File".AsHaxeString(), SafeToString(_configPath).AsHaxeString(), () => { }, Ref<int>.In(0), flow);
     }
 
     // 原版 Game.init 的 Hook：缓存 Game 实例，然后继续执行原版 init。
@@ -236,6 +304,25 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
     // 玩家每帧更新回调：这是本 Mod 的主循环入口。
     void IOnHeroUpdate.OnHeroUpdate(double dt)
     {
+        // 每秒热加载一次配置文件，支持游戏运行时改 config.json。
+        _configReloadTimer -= dt;
+        if (_configReloadTimer <= 0)
+        {
+            _configReloadTimer = ConfigReloadIntervalSeconds;
+            ReloadConfigIfChanged(force: false);
+        }
+
+        // 关闭时完全绕过功能；如果关闭前正在事件中，先重置本 Mod 状态。
+        if (!_enabled)
+        {
+            if (_inArena || _entryKillCount > 0 || _arenaMobKeys.Count > 0)
+            {
+                ResetCurrentLevelState("disabled");
+            }
+
+            return;
+        }
+
         // 从 ModCore 拿当前玩家实例；主菜单、加载中等阶段可能为空。
         var hero = ModCore.Modules.Game.Instance.HeroInstance;
         if (hero == null) return;
@@ -747,6 +834,106 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
         {
             // 读取失败时按 0 细胞处理，保证 Mod 不会因为难度读取失败闪退。
             return 0;
+        }
+    }
+
+    // 设置启用状态，并在关闭时清理当前事件状态。
+    private static void SetEnabled(bool enabled, string reason)
+    {
+        // 状态没变时只写一条轻量日志。
+        if (_enabled == enabled)
+        {
+            DebugLog($"Enabled unchanged: enabled={_enabled}, reason={reason}");
+            return;
+        }
+
+        // 更新内存状态。
+        _enabled = enabled;
+        DebugLog($"Enabled changed: enabled={_enabled}, reason={reason}");
+
+        // 关闭功能时，立刻停止本 Mod 的计数和刷怪。
+        if (!_enabled)
+        {
+            ResetCurrentLevelState($"disabled by {reason}");
+        }
+    }
+
+    // 读取 config.json；文件变化后自动应用。
+    private static void ReloadConfigIfChanged(bool force)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_configPath))
+            {
+                return;
+            }
+
+            // 没有配置文件时创建默认配置，避免用户不知道该怎么写。
+            if (!DotNetFile.Exists(_configPath))
+            {
+                SaveConfig();
+                _configLastWriteTimeUtc = DotNetFile.GetLastWriteTimeUtc(_configPath);
+                DebugLog("Config not found; created default config.");
+                return;
+            }
+
+            // 文件没变化且不是强制加载时，不重复解析。
+            var lastWriteTimeUtc = DotNetFile.GetLastWriteTimeUtc(_configPath);
+            if (!force && lastWriteTimeUtc == _configLastWriteTimeUtc) return;
+
+            // 读取并反序列化配置。
+            var json = DotNetFile.ReadAllText(_configPath);
+            var config = JsonSerializer.Deserialize<RiftSiegeConfig>(json);
+            if (config == null)
+            {
+                DebugLog("Config reload skipped: deserialized config is null.");
+                return;
+            }
+
+            // 应用启用状态。
+            SetEnabled(config.Enabled, "config reload");
+            _configLastWriteTimeUtc = lastWriteTimeUtc;
+            DebugLog($"Config loaded: Enabled={_enabled}");
+        }
+        catch (Exception ex)
+        {
+            // 配置读取失败不影响游戏，继续使用当前内存里的状态。
+            DebugLog($"Config reload failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // 保存当前配置到 config.json。
+    private static void SaveConfig()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_configPath))
+            {
+                return;
+            }
+
+            // 确保配置目录存在。
+            Directory.CreateDirectory(DotNetPath.GetDirectoryName(_configPath)!);
+
+            // 只暴露一个参数：Enabled，后续要加更多设置可以继续扩展这个类。
+            var config = new RiftSiegeConfig
+            {
+                Enabled = _enabled,
+            };
+
+            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+            });
+
+            DotNetFile.WriteAllText(_configPath, json);
+            _configLastWriteTimeUtc = DotNetFile.GetLastWriteTimeUtc(_configPath);
+            DebugLog($"Config saved: Enabled={_enabled}");
+        }
+        catch (Exception ex)
+        {
+            // 保存失败只写日志，避免菜单点击导致游戏崩溃。
+            DebugLog($"Config save failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -1272,4 +1459,11 @@ public sealed class ModEntry(ModInfo info) : ModBase(info),
             // 调试日志不能影响游戏运行。
         }
     }
+}
+
+// RiftSiege 的用户配置文件结构。
+internal sealed class RiftSiegeConfig
+{
+    // 总开关：true 启用事件，false 完全关闭事件。
+    public bool Enabled { get; set; } = true;
 }
