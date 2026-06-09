@@ -2,6 +2,10 @@
 
 Dead Cells Core Modding MDK mod. This mod currently implements a local arena-style encounter on the current map.
 
+## Steam Workshop
+
+https://steamcommunity.com/sharedfiles/filedetails/?id=3741466048
+
 ## Current Behavior
 
 - Each normal map rolls a random kill threshold between 15 and 30.
